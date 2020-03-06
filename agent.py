@@ -1,14 +1,19 @@
 import time
 import random
 import threading
+from multiprocessing import Process, Value
+
+
+BRAIN_TICK = 1
+WORLD_TICK = 1
 
 
 class Agent:
     def __init__(self, agent_id, world):
-        self.conscious = ConsciousThoughtUnit(agent_id)
-        self.hunger = HungerDrive(self.conscious, world)
-        self.agent_id = agent_id
         self.world = world
+        self.agent_id = agent_id
+        self.conscious = ConsciousThoughtUnit(self.agent_id)
+        self.hunger = HungerDrive(self.conscious, self.world)
 
     def start(self):
         self.conscious.start()
@@ -47,7 +52,7 @@ class Unit(threading.Thread):
         while True:
             self.task_pool = sorted(self.task_pool, key=lambda x: x.priority)
             self.task_pool[0].execute(self.name)
-            time.sleep(1 / 40)
+            time.sleep(BRAIN_TICK)
 
 
 class ConsciousThoughtUnit(Unit):
@@ -61,7 +66,7 @@ class ConsciousThoughtUnit(Unit):
 class HungerDrive(threading.Thread):
     def __init__(self, conscious, world):
         super().__init__()
-        self.base_priority = 100
+        self.base_priority = 101
         self.conscious = conscious
         self.world = world
         self.eat_task = EatTask(self.base_priority, self.world)
@@ -69,33 +74,45 @@ class HungerDrive(threading.Thread):
 
     def run(self):
         while True:
-            hunger_level = self.world.sense()
+            hunger_level = self.world.hunger.value
             next_priority = self.base_priority - hunger_level
             self.eat_task.priority = next_priority
-            time.sleep(1 / 40)
+            time.sleep(BRAIN_TICK)
 
 
 class WorldOutsideOfConsciousThought:
     def __init__(self):
-        self.amount_of_food = 100  # external apples avaiable
-        self.agent_hunger = 0  # body sense of the agent
+        self.hunger = Value("i", 0)
+        self.apple_count = Value("i", 100)
+        self.process = Process(target=self.simulate)
+
+    def start(self):
+        self.process.start()
+
+    def simulate(self):
+        while True:
+            print(f"Agent is getting hungrier: {self.hunger.value}")
+            self.hunger.value += 1
+            time.sleep(WORLD_TICK)
 
     def sense(self):
-        hunger_up = random.choice([0, 1])  # TODO - separate running process
-        self.agent_hunger += hunger_up
-        print(f"hunger is now {self.agent_hunger}")
-        return self.agent_hunger
+        print(f"Agent is sensing hunger as {self.hunger.value}")
+        return self.hunger.value
 
     def eat(self, name):
         food_eaten = random.choice([0, 1, 2, 3])
-        if self.amount_of_food < food_eaten:
+        if self.apple_count.value < food_eaten:
             return
-        print(f"{name} is eating {food_eaten} apples")
-        self.amount_of_food -= food_eaten
-        self.agent_hunger -= food_eaten
+        self.apple_count.value -= food_eaten
+        self.hunger.value -= food_eaten
+        print(
+            f"{name} is eating {food_eaten} apples, "
+            f"{self.apple_count.value} apples left"
+        )
 
 
 if __name__ == "__main__":
     world = WorldOutsideOfConsciousThought()
-    a1 = Agent("agent 1", world)
-    a1.start()
+    world.start()
+    agent = Agent("Agent 1", world)
+    agent.start()
